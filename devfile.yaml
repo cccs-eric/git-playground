@@ -1,0 +1,101 @@
+apiVersion: 1.0.0
+metadata:
+  generateName: test
+components:
+  - type: chePlugin
+    id: ms-python/python/latest
+    memoryLimit: 512Mi
+    env:
+      - name: 'PIP_INDEX_URL'
+        value: 'https://nexus.u.azure.chimera.cyber.gc.ca/repository/pypi-group/simple'
+  - mountSources: true
+    memoryLimit: 2Gi
+    type: dockerimage
+    image: 'uchimera.azurecr.io/cccs/che-pyspark-3.8:7.30.1'
+    alias: pyspark
+    env:
+      - name: 'PIP_INDEX_URL'
+        value: 'https://nexus.u.azure.chimera.cyber.gc.ca/repository/pypi-group/simple'
+      - name: 'AIRFLOW_HOME'
+        value: '${CHE_PROJECTS_ROOT}/airflow'
+      - name: 'SPARK_USER_SRC'
+        value: 'CHE_WORKSPACE_NAMESPACE'
+      - name: 'DATALAKE_NAME'
+        value: 'hogwartsdatalakeu'
+commands:
+  - name: 1. create virtual environment
+    actions:
+      - type: exec
+        component: pyspark
+        command: python3 -m venv --copies ${CHE_PROJECTS_ROOT}/.venv
+        workdir: ${CHE_PROJECTS_ROOT}
+  - name: 2. install requirements
+    actions:
+      - type: exec
+        component: pyspark
+        command: . ${CHE_PROJECTS_ROOT}/.venv/bin/activate && pip install wheel && pip install --no-cache-dir -r requirements.txt
+        workdir: ${CHE_PROJECTS_ROOT}/Explosive-Hippogriff
+  - name: 3. run with python3
+    actions:
+      - type: exec
+        component: pyspark
+        command: . ${CHE_PROJECTS_ROOT}/.venv/bin/activate && python3 main.py cbs -k timeperiod=20210101 cloud_provider=azure ingestor_name=project
+        workdir: ${CHE_PROJECTS_ROOT}/Explosive-Hippogriff
+  - name: 3. debug with python3
+    actions:
+      - type: exec
+        component: pyspark
+        command: . ${CHE_PROJECTS_ROOT}/.venv/bin/activate && python3 -m debugpy --listen 5678 --wait-for-client main.py cbs -k timeperiod=20210101 cloud_provider=azure ingestor_name=project
+        workdir: ${CHE_PROJECTS_ROOT}/Explosive-Hippogriff
+  - name: run with spark-submit
+    actions:
+      - type: exec
+        component: pyspark
+        command: ${SPARK_HOME}/bin/spark-submit -v --conf spark.driver.host=${HOSTNAME} --conf spark.authenticate.enableSaslEncryption=true
+          --conf spark.authenticate=true --conf spark.authenticate.secret="${SPARK_RPC_AUTHENTICATION_SECRET}"
+          --conf spark.ui.reverseProxy=true main.py
+        workdir: ${CHE_PROJECTS_ROOT}/Explosive-Hippogriff
+  - name: test with spark-submit locally
+    actions:
+      - type: exec
+        component: pyspark
+        command: ${SPARK_HOME}/bin/spark-submit -v --master local /usr/local/spark/examples/src/main/python/pi.py
+        workdir: ${CHE_PROJECTS_ROOT}/Explosive-Hippogriff
+  - name: test with spark-submit remotly
+    actions:
+      - type: exec
+        component: pyspark
+        command: ${SPARK_HOME}/bin/spark-submit -v --master spark://ver-1-spark-master-svc.fawkes-spark:7077 /usr/local/spark/examples/src/main/python/pi.py
+        workdir: ${CHE_PROJECTS_ROOT}/Explosive-Hippogriff
+  - name: debug
+    actions:
+      - referenceContent: |
+          {
+            "version": "0.2.0",
+            "configurations": [
+              {
+                  "type": "python",
+                  "name": "Remote Attach on port 5678",
+                  "request": "attach",
+                  "connect": {
+                      "port": 5678
+                  }
+              },
+              {
+                "type": "python",
+                "request": "launch",
+                "name": "Launch ExplosiveHippogriff",
+                "source": "che",
+                "program": "${workspaceFolder}/Explosive-Hippogriff/main.py",
+                "args": [
+                  "cbs",
+                  "-k",
+                  "timeperiod=20210101",
+                  "cloud_provider=azure",
+                  "ingestor_name=project"
+                ],
+                "stopOnEntry": "true"
+              }
+            ]
+          }
+        type: vscode-launch
